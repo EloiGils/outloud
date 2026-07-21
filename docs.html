@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>outloud docs — install, usage, CLI</title>
+<meta name="description" content="Documentation for outloud: install guide, keyboard shortcuts, CLI reference, voices and languages, troubleshooting.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔊</text></svg>">
+<style>
+  :root {
+    --bg: #0a0a0f; --bg2: #12121a; --card: #16161f; --line: #24242f;
+    --text: #ececf1; --dim: #9a9aa8; --accent: #ffb454; --accent2: #ff7a45;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+    line-height: 1.65; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 0 24px; }
+  nav { position: sticky; top: 0; backdrop-filter: blur(14px);
+    background: rgba(10,10,15,.75); border-bottom: 1px solid var(--line); z-index: 10; }
+  nav .wrap { display: flex; align-items: center; gap: 22px; height: 58px; max-width: 980px; }
+  nav .logo { font-weight: 700; font-size: 18px; color: var(--text); }
+  nav .logo span { color: var(--accent); }
+  nav .links { margin-left: auto; display: flex; gap: 22px; font-size: 14.5px; }
+  nav .links a { color: var(--dim); }
+  nav .links a:hover { color: var(--text); }
+
+  header { padding: 56px 0 8px; }
+  h1 { font-size: 2.2rem; letter-spacing: -.01em; }
+  .toc { color: var(--dim); font-size: 14.5px; margin: 14px 0 0; }
+  .toc a { margin-right: 16px; }
+
+  h2 { font-size: 1.45rem; margin: 54px 0 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 26px 0 8px; }
+  p, li { color: #c9c9d4; font-size: 15px; }
+  ul, ol { padding-left: 22px; margin: 10px 0; }
+  code { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-size: 13.5px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 1.5px 6px; }
+  pre { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 18px; overflow-x: auto; margin: 12px 0; }
+  pre code { background: none; border: 0; padding: 0; color: var(--text); }
+  pre .c { color: var(--dim); }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+  th { color: var(--dim); font-weight: 600; }
+  kbd { background: #22222d; border: 1px solid #33333f; border-bottom-width: 3px;
+    border-radius: 7px; padding: 2px 9px; font-size: 13.5px; }
+  .note { background: var(--bg2); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+    border-radius: 10px; padding: 12px 16px; margin: 14px 0; font-size: 14.5px; color: #c9c9d4; }
+  footer { margin-top: 80px; border-top: 1px solid var(--line); padding: 30px 0 44px; color: var(--dim); font-size: 14px; }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="logo" href="index.html">🔊 out<span>loud</span></a>
+  <div class="links">
+    <a href="index.html">Home</a>
+    <a href="https://github.com/EloiGils/outloud">GitHub</a>
+  </div>
+</div></nav>
+
+<div class="wrap">
+<header>
+  <h1>Documentation</h1>
+  <p class="toc">
+    <a href="#install">Install</a> <a href="#first-run">First run</a>
+    <a href="#usage">Usage</a> <a href="#voices">Voices</a>
+    <a href="#cli">CLI</a> <a href="#how">How it works</a>
+    <a href="#trouble">Troubleshooting</a> <a href="#uninstall">Uninstall</a>
+  </p>
+</header>
+
+<h2 id="install">Install</h2>
+<p>Requirements: macOS (Apple Silicon recommended) and
+<a href="https://brew.sh">Homebrew</a>.</p>
+<pre><code>curl -fsSL https://raw.githubusercontent.com/EloiGils/outloud/main/install.sh | bash</code></pre>
+<p>Or from a clone:</p>
+<pre><code>git clone https://github.com/EloiGils/outloud.git
+cd outloud
+./install.sh</code></pre>
+<p>The installer sets up:</p>
+<ul>
+  <li>a private Python environment at <code>~/.outloud/venv</code> with the
+      <a href="https://huggingface.co/hexgrad/Kokoro-82M">Kokoro-82M</a> voice model
+      (~2&nbsp;GB including PyTorch — one-time download),</li>
+  <li><a href="https://mpv.io">mpv</a> as the audio engine and
+      <a href="https://www.hammerspoon.org">Hammerspoon</a> as the UI layer (via Homebrew),</li>
+  <li>the <code>outloud</code> CLI and a launchd daemon that keeps the voice model
+      warm from login (that's why it speaks in ~1.7&nbsp;s).</li>
+</ul>
+
+<h2 id="first-run">First run</h2>
+<ol>
+  <li>macOS will ask you to grant <b>Hammerspoon</b> Accessibility permission
+      (System Settings → Privacy &amp; Security → Accessibility). This is what lets
+      the hotkey grab your text selection.</li>
+  <li>Select any text, press <kbd>⌥⌘L</kbd>, and listen.</li>
+  <li>Pick your voice and language in the <b>🔊 menu bar icon</b> → Voice.</li>
+</ol>
+<div class="note">The very first reading after login takes a few extra seconds while
+the model warms up. Every reading after that starts in about 1-2 seconds.</div>
+
+<h2 id="usage">Usage</h2>
+<table>
+  <tr><th>Action</th><th>How</th></tr>
+  <tr><td>Read the selected text</td><td><kbd>⌥⌘L</kbd> — in any app</td></tr>
+  <tr><td>Stop</td><td><kbd>⌥⌘K</kbd> or ✕ on the HUD</td></tr>
+  <tr><td>Search reading history</td><td><kbd>⌥⌘H</kbd> — Spotlight-style, Enter replays</td></tr>
+  <tr><td>Pause / resume (exact)</td><td>⏸ / ▶ on the HUD</td></tr>
+  <tr><td>Replay from the top</td><td>🔁 on the HUD (instant)</td></tr>
+  <tr><td>Change speed live</td><td>− / + on the HUD (0.5×-3×, persists as your default)</td></tr>
+  <tr><td>Re-listen to a recent reading</td><td>🔊 menu bar → click any entry</td></tr>
+</table>
+<p>While reading, a floating HUD shows what's playing:</p>
+<pre><code>🔊 Reading your article…    −  1.5×  +    ⏸  🔁  ✕</code></pre>
+
+<h2 id="voices">Voices &amp; languages</h2>
+<p>outloud ships with 50+ Kokoro voices across 9 languages. Switch in the
+🔊 menu → Voice, or per-call from the CLI (<code>-l</code> language, <code>--voice</code>):</p>
+<table>
+  <tr><th>Code</th><th>Language</th><th>Example voices</th></tr>
+  <tr><td><code>a</code></td><td>English (US)</td><td>af_heart, am_adam</td></tr>
+  <tr><td><code>b</code></td><td>English (UK)</td><td>bf_emma</td></tr>
+  <tr><td><code>e</code></td><td>Spanish</td><td>ef_dora, em_alex, em_santa</td></tr>
+  <tr><td><code>f</code></td><td>French</td><td>ff_siwis</td></tr>
+  <tr><td><code>i</code></td><td>Italian</td><td>if_sara, im_nicola</td></tr>
+  <tr><td><code>p</code></td><td>Portuguese (BR)</td><td>pf_dora, pm_alex</td></tr>
+  <tr><td><code>h</code></td><td>Hindi</td><td>hf_alpha, hm_omega</td></tr>
+  <tr><td><code>j</code></td><td>Japanese*</td><td>jf_alpha</td></tr>
+  <tr><td><code>z</code></td><td>Mandarin*</td><td>zf_xiaobei</td></tr>
+</table>
+<p>*Japanese and Mandarin need one extra: <code>~/.outloud/venv/bin/pip install "misaki[ja]"</code>
+(or <code>"misaki[zh]"</code>).</p>
+
+<h2 id="cli">CLI reference</h2>
+<pre><code>outloud "read this sentence"      <span class="c"># read text</span>
+cat article.md | outloud          <span class="c"># from a pipe</span>
+outloud                           <span class="c"># read the clipboard</span>
+outloud -s 1.6                    <span class="c"># speed</span>
+outloud -l e --voice em_alex      <span class="c"># Spanish, male voice</span>
+
+outloud --pause | --resume        <span class="c"># exact pause / resume</span>
+outloud --replay                  <span class="c"># restart current reading (instant)</span>
+outloud --speed-live 2.0          <span class="c"># change speed of current reading</span>
+outloud --stop
+
+outloud --history                 <span class="c"># list past readings</span>
+outloud --history 50 --json       <span class="c"># for scripts/integrations</span>
+outloud --reread 20260721-134536  <span class="c"># re-listen (cached audio, ~0.4s)</span>
+outloud --last                    <span class="c"># re-listen to the most recent</span></code></pre>
+<div class="note">Spanish flag aliases work everywhere: <code>--pausa</code>,
+<code>--reanudar</code>, <code>--repetir</code>, <code>--historial</code>,
+<code>--releer</code>, <code>--ultimo</code>.</div>
+
+<h2 id="how">How it works</h2>
+<pre><code>select text ──⌥⌘L──▶ Hammerspoon UI ──▶ outloud CLI ──▶ daemon (Kokoro, warm)
+                                                          │ sentence-by-sentence
+                                                          ▼
+                            HUD controls ◀──socket──▶ mpv (gapless playlist,
+                                                      exact pause, live speed)</code></pre>
+<ul>
+  <li><b>Warm daemon</b> — the model loads once at login, not per reading.</li>
+  <li><b>Sentence streaming</b> — the first chunk is cut extra short (~30-90 chars)
+      so audio starts in ~1&nbsp;s while the rest synthesizes in the background.</li>
+  <li><b>mpv as the player</b> — its IPC socket gives exact pause and live speed
+      with pitch correction. (<code>afplay</code> can't truly pause: the audio clock
+      keeps running.)</li>
+  <li><b>CPU on purpose</b> — on Apple Silicon, Kokoro is ~2.3× <i>faster</i> on CPU
+      than on MPS/GPU, because one operator falls back per call.</li>
+</ul>
+
+<h2 id="trouble">Troubleshooting</h2>
+<h3>The hotkey does nothing</h3>
+<p>Check Hammerspoon has Accessibility permission (System Settings → Privacy &amp;
+Security → Accessibility) and that the 🔨 icon is in your menu bar. Then reload:
+click it → "Reload Config".</p>
+<h3>"No text selected" in iTerm</h3>
+<p>outloud reads iTerm's clipboard (iTerm blocks synthetic keystrokes but copies
+selections automatically). Make sure iTerm's <i>"Copy to pasteboard on selection"</i>
+(Settings → General → Selection) is enabled — it is by default.</p>
+<h3>First reading is slow</h3>
+<p>The daemon warms the model for <i>your system language</i> at login. The first
+reading in a <i>different</i> language loads that pipeline once (~5&nbsp;s), then it's fast.</p>
+<h3>Where is my data?</h3>
+<p>History and cached audio: <code>~/Library/Application Support/Outloud</code>.
+Daemon log: <code>~/.cache/outloud-daemon.log</code>. Settings live in Hammerspoon
+(<code>hs.settings</code>, keys <code>outloud.*</code>).</p>
+
+<h2 id="uninstall">Uninstall</h2>
+<pre><code>cd outloud && ./uninstall.sh</code></pre>
+<p>Removes the CLI, daemon, Python environment and UI module. Your reading history
+stays in <code>~/Library/Application Support/Outloud</code> until you delete it.</p>
+
+<footer>
+  MIT · <a href="https://github.com/EloiGils/outloud">GitHub</a> · made by
+  <a href="https://github.com/EloiGils">Eloi</a>
+</footer>
+</div>
+</body>
+</html>

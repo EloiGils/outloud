@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>outloud — free, open-source text-to-speech for macOS</title>
+<meta name="description" content="Select text in any app, press a hotkey, and your Mac reads it aloud with a natural voice. Free, open source, 100% local. The Speechify alternative that costs $0.">
+<meta property="og:title" content="outloud — your Mac reads to you">
+<meta property="og:description" content="Free, open-source, local text-to-speech for macOS. Select text anywhere, press ⌥⌘L, listen.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔊</text></svg>">
+<style>
+  :root {
+    --bg: #0a0a0f; --bg2: #12121a; --card: #16161f; --line: #24242f;
+    --text: #ececf1; --dim: #9a9aa8; --accent: #ffb454; --accent2: #ff7a45;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, sans-serif;
+    line-height: 1.6; -webkit-font-smoothing: antialiased; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 24px; }
+  code, .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+
+  nav { position: sticky; top: 0; backdrop-filter: blur(14px);
+    background: rgba(10,10,15,.75); border-bottom: 1px solid var(--line); z-index: 10; }
+  nav .wrap { display: flex; align-items: center; gap: 22px; height: 58px; }
+  nav .logo { font-weight: 700; font-size: 18px; color: var(--text); }
+  nav .logo span { color: var(--accent); }
+  nav .links { margin-left: auto; display: flex; gap: 22px; font-size: 14.5px; }
+  nav .links a { color: var(--dim); }
+  nav .links a:hover { color: var(--text); text-decoration: none; }
+
+  header { padding: 90px 0 60px; text-align: center;
+    background: radial-gradient(ellipse 70% 50% at 50% -10%, rgba(255,180,84,.13), transparent); }
+  h1 { font-size: clamp(2.4rem, 6vw, 4rem); font-weight: 800; letter-spacing: -.02em; line-height: 1.1; }
+  h1 em { font-style: normal; color: var(--accent); }
+  .sub { color: var(--dim); font-size: clamp(1.05rem, 2.4vw, 1.25rem); max-width: 620px; margin: 22px auto 0; }
+  .sub b { color: var(--text); font-weight: 600; }
+
+  .install { margin: 36px auto 10px; max-width: 640px; }
+  .cmd { display: flex; align-items: center; gap: 10px; background: var(--card);
+    border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; text-align: left; }
+  .cmd code { flex: 1; font-size: 13.5px; color: var(--text); overflow-x: auto; white-space: nowrap; }
+  .cmd code::before { content: "$ "; color: var(--accent); }
+  .cmd button { background: var(--accent); color: #1a1206; border: 0; border-radius: 8px;
+    padding: 8px 14px; font-weight: 700; font-size: 13px; cursor: pointer; flex-shrink: 0; }
+  .cmd button:hover { background: var(--accent2); color: #fff; }
+  .below-cmd { color: var(--dim); font-size: 13.5px; margin-top: 12px; }
+
+  .hud-demo { margin: 56px auto 0; display: inline-flex; align-items: center; gap: 14px;
+    background: rgba(23,23,28,.95); border: 1px solid var(--line); border-radius: 16px;
+    padding: 13px 20px; box-shadow: 0 18px 60px rgba(0,0,0,.55); }
+  .hud-demo .bars { display: flex; align-items: flex-end; gap: 3px; height: 18px; }
+  .hud-demo .bars i { width: 3.5px; background: var(--accent); border-radius: 2px;
+    animation: eq 1s ease-in-out infinite; }
+  .hud-demo .bars i:nth-child(2) { animation-delay: .15s; }
+  .hud-demo .bars i:nth-child(3) { animation-delay: .3s; }
+  .hud-demo .bars i:nth-child(4) { animation-delay: .45s; }
+  @keyframes eq { 0%,100% { height: 5px } 50% { height: 18px } }
+  .hud-demo .snippet { font-size: 14px; color: var(--text); }
+  .hud-demo .ctrl { color: var(--dim); font-size: 15px; display: flex; gap: 12px; align-items: center; }
+  .hud-demo .speed { font-size: 12.5px; border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+
+  .strip { border-block: 1px solid var(--line); background: var(--bg2); margin-top: 80px; }
+  .strip .wrap { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; text-align: center; }
+  .strip .cell { padding: 34px 18px; border-left: 1px solid var(--line); }
+  .strip .cell:first-child { border-left: 0; }
+  .strip .big { font-size: 1.9rem; font-weight: 800; }
+  .strip .who { color: var(--dim); font-size: 14px; margin-top: 4px; }
+  .strip .win .big { color: var(--accent); }
+  @media (max-width: 640px) { .strip .wrap { grid-template-columns: 1fr; } .strip .cell { border-left: 0; border-top: 1px solid var(--line); } }
+
+  section { padding: 76px 0 0; }
+  h2 { font-size: 1.9rem; letter-spacing: -.01em; margin-bottom: 10px; }
+  .lead { color: var(--dim); max-width: 640px; margin-bottom: 36px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 800px) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px; }
+  .card .ico { font-size: 22px; }
+  .card h3 { font-size: 15.5px; margin: 10px 0 6px; }
+  .card p { color: var(--dim); font-size: 14px; }
+
+  .keys { display: flex; flex-wrap: wrap; gap: 14px; }
+  .key { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 20px; display: flex; align-items: center; gap: 14px; }
+  kbd { background: #22222d; border: 1px solid #33333f; border-bottom-width: 3px;
+    border-radius: 7px; padding: 4px 10px; font-size: 14px; font-family: inherit; }
+  .key span { color: var(--dim); font-size: 14.5px; }
+
+  details { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 20px; margin-bottom: 10px; }
+  summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+  details p { color: var(--dim); font-size: 14.5px; margin-top: 10px; }
+  details code { color: var(--accent); font-size: 13px; }
+
+  footer { margin-top: 90px; border-top: 1px solid var(--line); padding: 34px 0 44px;
+    color: var(--dim); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 26px; align-items: center; }
+  footer .made { margin-left: auto; }
+</style>
+</head>
+<body>
+
+<nav><div class="wrap">
+  <a class="logo" href="#">🔊 out<span>loud</span></a>
+  <div class="links">
+    <a href="docs.html">Docs</a>
+    <a href="#faq">FAQ</a>
+    <a href="https://github.com/EloiGils/outloud">GitHub</a>
+  </div>
+</div></nav>
+
+<header><div class="wrap">
+  <h1>Your Mac <em>reads to you.</em></h1>
+  <p class="sub">Select text in any app — browser, PDF, mail, terminal — press
+  <b>⌥⌘L</b>, and a natural voice reads it aloud. <b>Free, open source, 100% local.</b>
+  No cloud, no account, no subscription.</p>
+
+  <div class="install">
+    <div class="cmd">
+      <code id="install-cmd">curl -fsSL https://raw.githubusercontent.com/EloiGils/outloud/main/install.sh | bash</code>
+      <button onclick="copyCmd(this)">Copy</button>
+    </div>
+    <p class="below-cmd">macOS + <a href="https://brew.sh">Homebrew</a> · or
+    <a href="https://github.com/EloiGils/outloud">clone it from GitHub</a> and run <code>./install.sh</code></p>
+  </div>
+
+  <div class="hud-demo" aria-hidden="true">
+    <div class="bars"><i></i><i></i><i></i><i></i></div>
+    <span class="snippet">Reading your article…</span>
+    <span class="ctrl"><span>−</span><span class="speed">1.5×</span><span>+</span><span>⏸</span><span>🔁</span><span>✕</span></span>
+  </div>
+</div></header>
+
+<div class="strip"><div class="wrap">
+  <div class="cell"><div class="big">$139<span style="font-size:1rem">/yr</span></div><div class="who">Speechify Premium</div></div>
+  <div class="cell"><div class="big">2005</div><div class="who">what Apple's built-in voices sound like</div></div>
+  <div class="cell win"><div class="big">$0 forever</div><div class="who">outloud — open source, runs on your Mac</div></div>
+</div></div>
+
+<section id="features"><div class="wrap">
+  <h2>Everything the paid apps do. Locally.</h2>
+  <p class="lead">Built because reading long text on a screen is hard for a lot of us —
+  and the good tools were locked behind subscriptions.</p>
+  <div class="grid">
+    <div class="card"><div class="ico">⚡️</div><h3>Speaks in ~1.7 seconds</h3>
+      <p>A resident daemon keeps the AI voice model warm and synthesizes sentence-by-sentence. Long article? Same instant start.</p></div>
+    <div class="card"><div class="ico">🌍</div><h3>Works in every app</h3>
+      <p>One global hotkey. Browser, PDFs, Slack, terminals — including apps that block synthetic keystrokes.</p></div>
+    <div class="card"><div class="ico">🗣</div><h3>Natural voices, 9 languages</h3>
+      <p>50+ voices from Kokoro-82M: English, Spanish, French, Italian, Portuguese, Hindi, Japanese, Chinese.</p></div>
+    <div class="card"><div class="ico">🎛</div><h3>Live speed &amp; exact pause</h3>
+      <p>Change speed mid-sentence with pitch correction. Pause freezes on the exact word — not "mute and drift".</p></div>
+    <div class="card"><div class="ico">📜</div><h3>Reading history</h3>
+      <p>Every reading saved with cached audio. Re-listen instantly from the menu bar or the Spotlight-style search (⌥⌘H).</p></div>
+    <div class="card"><div class="ico">🔒</div><h3>Private by design</h3>
+      <p>Your text never leaves your Mac. No accounts, no telemetry, no network calls. MIT licensed — read the code.</p></div>
+  </div>
+</div></section>
+
+<section id="shortcuts"><div class="wrap">
+  <h2>Three shortcuts. That's the whole manual.</h2>
+  <p class="lead">Plus a 🔊 menu bar icon for history, voices and speed — and a floating
+  HUD with controls while it reads.</p>
+  <div class="keys">
+    <div class="key"><kbd>⌥ ⌘ L</kbd><span>read the selected text</span></div>
+    <div class="key"><kbd>⌥ ⌘ K</kbd><span>stop</span></div>
+    <div class="key"><kbd>⌥ ⌘ H</kbd><span>search your reading history</span></div>
+  </div>
+</div></section>
+
+<section id="faq"><div class="wrap">
+  <h2>FAQ</h2>
+  <details><summary>Is it really free? What's the catch?</summary>
+    <p>Really free, MIT licensed, no catch. It runs an open-source AI voice model
+    (Kokoro-82M) on your own Mac, so there are no server costs to pass on to you.</p></details>
+  <details><summary>Does my text get sent anywhere?</summary>
+    <p>No. Synthesis happens on your machine. The only network access is downloading
+    the voice model once at install time.</p></details>
+  <details><summary>What does it need?</summary>
+    <p>macOS with <a href="https://brew.sh">Homebrew</a>. The installer sets up the rest:
+    a private Python environment with the model (~2&nbsp;GB), the mpv audio engine, and the
+    Hammerspoon UI layer. Apple Silicon recommended.</p></details>
+  <details><summary>How is it so fast if it's a local AI model?</summary>
+    <p>Three tricks: the model stays warm in a resident daemon, text is synthesized
+    sentence-by-sentence streaming into the player, and the first chunk is cut extra
+    short so audio starts while the rest is still generating. Details in the
+    <a href="docs.html#how">docs</a>.</p></details>
+  <details><summary>Can I use it from the terminal / scripts?</summary>
+    <p>Yes: <code>outloud "text"</code>, <code>cat file.md | outloud</code>,
+    <code>outloud --history</code>, <code>outloud --last</code>. Full CLI reference in the
+    <a href="docs.html#cli">docs</a>.</p></details>
+  <details><summary>How do I uninstall it?</summary>
+    <p>Run <code>./uninstall.sh</code> from the repo. It removes everything except your
+    reading history folder, which it tells you how to delete too.</p></details>
+</div></section>
+
+<footer><div class="wrap">
+  <span>MIT · <a href="https://github.com/EloiGils/outloud">GitHub</a></span>
+  <span><a href="docs.html">Documentation</a></span>
+  <span>Built on <a href="https://huggingface.co/hexgrad/Kokoro-82M">Kokoro</a>,
+  <a href="https://mpv.io">mpv</a> &amp; <a href="https://www.hammerspoon.org">Hammerspoon</a>
+  · inspired by <a href="https://github.com/cjpais/Handy">Handy</a></span>
+  <span class="made">made by <a href="https://github.com/EloiGils">Eloi</a></span>
+</div></footer>
+
+<script>
+function copyCmd(btn) {
+  navigator.clipboard.writeText(document.getElementById("install-cmd").textContent);
+  btn.textContent = "Copied!";
+  setTimeout(() => btn.textContent = "Copy", 1600);
+}
+</script>
+</body>
+</html>
