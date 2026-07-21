@@ -1,4 +1,4 @@
-# 🔊 aloud
+# 🔊 outloud
 
 **Free, open-source, local text-to-speech for macOS.**
 Like [Handy](https://github.com/cjpais/Handy), but for reading aloud.
@@ -21,18 +21,18 @@ API keys, no subscription, no telemetry. Ever.
   the 🔊 menu bar icon or the Spotlight-style search (**⌥⌘H**).
 - **9 languages, 50+ voices** via [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M):
   English (US/UK), Spanish, French, Italian, Portuguese, Hindi, Japanese*, Chinese*.
-- **Scriptable CLI**: `aloud "text"`, `echo text | aloud`, `aloud --history`,
-  `aloud --last` — build your own integrations.
+- **Scriptable CLI**: `outloud "text"`, `echo text | outloud`, `outloud --history`,
+  `outloud --last` — build your own integrations.
 
-*\*Japanese and Chinese need extras: `~/.aloud/venv/bin/pip install "misaki[ja]"` / `"misaki[zh]"`.*
+*\*Japanese and Chinese need extras: `~/.outloud/venv/bin/pip install "misaki[ja]"` / `"misaki[zh]"`.*
 
 ## Install
 
 Requires macOS and [Homebrew](https://brew.sh).
 
 ```bash
-git clone https://github.com/YOUR_USER/aloud.git
-cd aloud
+git clone https://github.com/EloiGils/outloud.git
+cd outloud
 ./install.sh
 ```
 
@@ -55,17 +55,17 @@ To remove everything: `./uninstall.sh`.
 | HUD | `−  1.5×  +` live speed · ⏸ exact pause · 🔁 replay · ✕ |
 
 ```bash
-aloud "read this sentence"       # CLI
-cat article.md | aloud -l a      # pipe, English
-aloud -l e --voice em_alex       # Spanish, male voice
-aloud --history                  # list past readings
-aloud --reread 20260721-134536   # re-listen (instant, cached audio)
+outloud "read this sentence"       # CLI
+cat article.md | outloud -l a      # pipe, English
+outloud -l e --voice em_alex       # Spanish, male voice
+outloud --history                  # list past readings
+outloud --reread 20260721-134536   # re-listen (instant, cached audio)
 ```
 
 ## How it works
 
 ```
-select text ──⌥⌘L──▶ Hammerspoon UI ──▶ aloud CLI ──▶ daemon (Kokoro warm, CPU)
+select text ──⌥⌘L──▶ Hammerspoon UI ──▶ outloud CLI ──▶ daemon (Kokoro warm, CPU)
                                                         │  sentence-by-sentence
                                                         ▼
                           HUD controls ◀──socket──▶ mpv (gapless playlist,
@@ -87,7 +87,7 @@ Design notes learned the hard way:
       best-in-class pronunciation + voice cloning from a 5s sample
 - [ ] Pronunciation dictionary (per-user word overrides)
 - [ ] Native app bundle (no Hammerspoon dependency)
-- [ ] Homebrew tap: `brew install aloud`
+- [ ] Homebrew tap: `brew install outloud`
 
 ## Credits
 

@@ -1,24 +1,33 @@
 #!/bin/bash
-# aloud installer — free, local text-to-speech for macOS
-# Usage: ./install.sh          (from a cloned repo)
+# outloud installer — free, local text-to-speech for macOS
+# Usage: ./install.sh                     (from a cloned repo)
+#    or: curl -fsSL https://raw.githubusercontent.com/EloiGils/outloud/main/install.sh | bash
 set -euo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
-ALOUD_HOME="$HOME/.aloud"
-VENV="$ALOUD_HOME/venv"
+REPO_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+if [ ! -f "$REPO_DIR/bin/outloud" ]; then
+  # running standalone (curl | bash): fetch the repo first
+  echo "-> downloading outloud..."
+  REPO_DIR="$HOME/.outloud/src"
+  rm -rf "$REPO_DIR"
+  mkdir -p "$REPO_DIR"
+  git clone --quiet --depth 1 https://github.com/EloiGils/outloud.git "$REPO_DIR"
+fi
+OUTLOUD_HOME="$HOME/.outloud"
+VENV="$OUTLOUD_HOME/venv"
 BIN_DIR="/opt/homebrew/bin"
 [ -d "$BIN_DIR" ] || BIN_DIR="/usr/local/bin"
-PLIST="$HOME/Library/LaunchAgents/com.aloud.daemon.plist"
+PLIST="$HOME/Library/LaunchAgents/com.outloud.daemon.plist"
 
 bold() { printf "\033[1m%s\033[0m\n" "$1"; }
 
-bold "aloud installer"
+bold "outloud installer"
 echo
 
 # --- prerequisites ---------------------------------------------------------
 
 if [ "$(uname)" != "Darwin" ]; then
-  echo "aloud only supports macOS." >&2; exit 1
+  echo "outloud only supports macOS." >&2; exit 1
 fi
 
 if ! command -v brew >/dev/null; then
@@ -35,8 +44,8 @@ done
 
 # --- python environment ----------------------------------------------------
 
-bold "→ creating Python environment (~/.aloud/venv)"
-mkdir -p "$ALOUD_HOME"
+bold "→ creating Python environment (~/.outloud/venv)"
+mkdir -p "$OUTLOUD_HOME"
 python3 -m venv "$VENV"
 "$VENV/bin/pip" install --quiet --upgrade pip
 bold "→ installing Kokoro TTS (this downloads PyTorch; a few minutes the first time)"
@@ -44,9 +53,9 @@ bold "→ installing Kokoro TTS (this downloads PyTorch; a few minutes the first
 
 # --- CLI -------------------------------------------------------------------
 
-bold "→ installing CLI: $BIN_DIR/aloud"
-sed "1s|^#!.*|#!$VENV/bin/python3|" "$REPO_DIR/bin/aloud" > "$BIN_DIR/aloud"
-chmod +x "$BIN_DIR/aloud"
+bold "→ installing CLI: $BIN_DIR/outloud"
+sed "1s|^#!.*|#!$VENV/bin/python3|" "$REPO_DIR/bin/outloud" > "$BIN_DIR/outloud"
+chmod +x "$BIN_DIR/outloud"
 
 # --- daemon (launchd) ------------------------------------------------------
 
@@ -57,10 +66,10 @@ case "${LANG:-en}" in
   hi*) WARM="h" ;; ja*) WARM="j" ;; zh*) WARM="z" ;; *) WARM="a" ;;
 esac
 sed -e "s|__PYTHON__|$VENV/bin/python3|g" \
-    -e "s|__ALOUD__|$BIN_DIR/aloud|g" \
+    -e "s|__OUTLOUD__|$BIN_DIR/outloud|g" \
     -e "s|__HOME__|$HOME|g" \
     -e "s|__WARM__|$WARM|g" \
-    "$REPO_DIR/launchd/com.aloud.daemon.plist.tmpl" > "$PLIST"
+    "$REPO_DIR/launchd/com.outloud.daemon.plist.tmpl" > "$PLIST"
 launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load -w "$PLIST"
 
@@ -68,16 +77,16 @@ launchctl load -w "$PLIST"
 
 bold "→ installing the UI (Hammerspoon module)"
 mkdir -p "$HOME/.hammerspoon"
-cp "$REPO_DIR/hammerspoon/aloud.lua" "$HOME/.hammerspoon/aloud.lua"
+cp "$REPO_DIR/hammerspoon/outloud.lua" "$HOME/.hammerspoon/outloud.lua"
 INIT="$HOME/.hammerspoon/init.lua"
 touch "$INIT"
-if ! grep -q 'require("aloud")' "$INIT"; then
-  printf '\nrequire("aloud")\n' >> "$INIT"
+if ! grep -q 'require("outloud")' "$INIT"; then
+  printf '\nrequire("outloud")\n' >> "$INIT"
 fi
 open -a Hammerspoon
 
 echo
-bold "✓ aloud is installed"
+bold "✓ outloud is installed"
 cat << 'EOF'
 
   Next steps:
@@ -87,5 +96,5 @@ cat << 'EOF'
      ⌥⌘K stops · ⌥⌘H searches your reading history.
   3. Pick your voice and language in the 🔊 menu bar icon.
 
-  CLI: aloud "hello" · aloud --history · aloud --last
+  CLI: outloud "hello" · outloud --history · outloud --last
 EOF

@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""aloud — free, local text-to-speech for macOS (Kokoro TTS + mpv).
+"""outloud — free, local text-to-speech for macOS (Kokoro TTS + mpv).
 
 Usage:
-  aloud "text to read"         # read text aloud
-  echo "text" | aloud          # from a pipe
-  aloud                        # read the clipboard
-  aloud -s 1.6                 # speed (default 1.3)
-  aloud -l e                   # language (e=Spanish, a=English US, ...)
-  aloud --speed-live 1.5       # change speed of the CURRENT reading
-  aloud --pause | --resume     # exact pause / resume
-  aloud --replay               # restart current reading from the top (instant)
-  aloud --stop                 # stop the current reading
-  aloud --history [N]          # show last N readings (default 15)
-  aloud --history N --json     # history as JSON (for integrations)
-  aloud --reread ID            # re-listen to a reading from history
-  aloud --last                 # re-listen to the most recent reading
-  aloud --daemon               # (internal) resident process with the model loaded
+  outloud "text to read"         # read text aloud
+  echo "text" | outloud          # from a pipe
+  outloud                        # read the clipboard
+  outloud -s 1.6                 # speed (default 1.3)
+  outloud -l e                   # language (e=Spanish, a=English US, ...)
+  outloud --speed-live 1.5       # change speed of the CURRENT reading
+  outloud --pause | --resume     # exact pause / resume
+  outloud --replay               # restart current reading from the top (instant)
+  outloud --stop                 # stop the current reading
+  outloud --history [N]          # show last N readings (default 15)
+  outloud --history N --json     # history as JSON (for integrations)
+  outloud --reread ID            # re-listen to a reading from history
+  outloud --last                 # re-listen to the most recent reading
+  outloud --daemon               # (internal) resident process with the model loaded
 
 Architecture: a resident daemon keeps Kokoro in memory and synthesizes sentence
 by sentence (streaming into mpv), so speech starts in ~1-2s regardless of text
@@ -55,10 +55,10 @@ VOICES = {
 REPO = "hexgrad/Kokoro-82M"
 MPV = shutil.which("mpv") or next(
     (p for p in ("/opt/homebrew/bin/mpv", "/usr/local/bin/mpv") if os.path.exists(p)), "mpv")
-SOCK = os.path.expanduser("~/.cache/aloud-mpv.sock")       # mpv control
-DSOCK = os.path.expanduser("~/.cache/aloud-daemon.sock")   # daemon requests
-LOG = os.path.expanduser("~/.cache/aloud-daemon.log")
-APP = os.path.expanduser("~/Library/Application Support/Aloud")
+SOCK = os.path.expanduser("~/.cache/outloud-mpv.sock")       # mpv control
+DSOCK = os.path.expanduser("~/.cache/outloud-daemon.sock")   # daemon requests
+LOG = os.path.expanduser("~/.cache/outloud-daemon.log")
+APP = os.path.expanduser("~/Library/Application Support/Outloud")
 HIST = os.path.join(APP, "history.jsonl")
 AUDIO = os.path.join(APP, "audio")
 MAX_HISTORY = 300  # text entries kept
@@ -196,7 +196,7 @@ def connect(spawn=True):
         s = attempt()
         if s:
             return s
-    sys.exit("Could not start the aloud daemon (see ~/.cache/aloud-daemon.log).")
+    sys.exit("Could not start the outloud daemon (see ~/.cache/outloud-daemon.log).")
 
 
 def client(request):
@@ -412,7 +412,7 @@ class Daemon:
         signal.signal(signal.SIGINT, shutdown)
 
         # preload the model so the first reading is already warm
-        warm = os.environ.get("ALOUD_WARM_LANG", "a")
+        warm = os.environ.get("OUTLOUD_WARM_LANG", "a")
         if warm in VOICES:
             threading.Thread(target=lambda: self.pipeline(warm), daemon=True).start()
         print("[daemon] listening", flush=True)
