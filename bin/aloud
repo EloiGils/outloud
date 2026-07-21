@@ -1,0 +1,511 @@
+#!/usr/bin/env python3
+"""aloud — free, local text-to-speech for macOS (Kokoro TTS + mpv).
+
+Usage:
+  aloud "text to read"         # read text aloud
+  echo "text" | aloud          # from a pipe
+  aloud                        # read the clipboard
+  aloud -s 1.6                 # speed (default 1.3)
+  aloud -l e                   # language (e=Spanish, a=English US, ...)
+  aloud --speed-live 1.5       # change speed of the CURRENT reading
+  aloud --pause | --resume     # exact pause / resume
+  aloud --replay               # restart current reading from the top (instant)
+  aloud --stop                 # stop the current reading
+  aloud --history [N]          # show last N readings (default 15)
+  aloud --history N --json     # history as JSON (for integrations)
+  aloud --reread ID            # re-listen to a reading from history
+  aloud --last                 # re-listen to the most recent reading
+  aloud --daemon               # (internal) resident process with the model loaded
+
+Architecture: a resident daemon keeps Kokoro in memory and synthesizes sentence
+by sentence (streaming into mpv), so speech starts in ~1-2s regardless of text
+length. The CLI is a thin client that stays alive for the duration of the
+reading (UI layers rely on that to know when it ends).
+
+Spanish flag aliases are accepted everywhere (--pausa, --reanudar, --repetir,
+--historial, --releer, --ultimo, --velocidad-live).
+"""
+import argparse
+import glob
+import json
+import os
+import re
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+from datetime import datetime
+
+# Default voice per Kokoro language code.
+# j (Japanese) and z (Mandarin) need extras: pip install misaki[ja] / misaki[zh]
+VOICES = {
+    "a": "af_heart",   # English (US)
+    "b": "bf_emma",    # English (UK)
+    "e": "ef_dora",    # Spanish
+    "f": "ff_siwis",   # French
+    "h": "hf_alpha",   # Hindi
+    "i": "if_sara",    # Italian
+    "j": "jf_alpha",   # Japanese
+    "p": "pf_dora",    # Portuguese (BR)
+    "z": "zf_xiaobei", # Mandarin Chinese
+}
+REPO = "hexgrad/Kokoro-82M"
+MPV = shutil.which("mpv") or next(
+    (p for p in ("/opt/homebrew/bin/mpv", "/usr/local/bin/mpv") if os.path.exists(p)), "mpv")
+SOCK = os.path.expanduser("~/.cache/aloud-mpv.sock")       # mpv control
+DSOCK = os.path.expanduser("~/.cache/aloud-daemon.sock")   # daemon requests
+LOG = os.path.expanduser("~/.cache/aloud-daemon.log")
+APP = os.path.expanduser("~/Library/Application Support/Aloud")
+HIST = os.path.join(APP, "history.jsonl")
+AUDIO = os.path.join(APP, "audio")
+MAX_HISTORY = 300  # text entries kept
+MAX_AUDIOS = 30    # readings kept with cached audio
+
+
+# ---------- history ----------
+
+def load_history():
+    """Return history entries, most recent first."""
+    try:
+        with open(HIST) as f:
+            lines = f.read().splitlines()
+    except FileNotFoundError:
+        return []
+    entries = []
+    for line in lines:
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return list(reversed(entries))
+
+
+def save_entry(entry):
+    os.makedirs(APP, exist_ok=True)
+    with open(HIST, "a") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def prune():
+    """Trim history and delete the oldest cached audio."""
+    entries = load_history()
+    if len(entries) > MAX_HISTORY:
+        with open(HIST, "w") as f:
+            for e in reversed(entries[:MAX_HISTORY]):
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    dirs = sorted(glob.glob(os.path.join(AUDIO, "*")))
+    for old in dirs[:-MAX_AUDIOS]:
+        shutil.rmtree(old, ignore_errors=True)
+
+
+# ---------- mpv control ----------
+
+def mpv_cmd(*command):
+    """Send a command to the running mpv. Returns the response, or None if no mpv."""
+    try:
+        c = socket.socket(socket.AF_UNIX)
+        c.settimeout(1.0)
+        c.connect(SOCK)
+        c.sendall((json.dumps({"command": list(command)}) + "\n").encode())
+        data = c.recv(65536).decode()
+        c.close()
+        for line in data.splitlines():
+            try:
+                resp = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "error" in resp:
+                return resp
+    except (OSError, socket.timeout):
+        return None
+    return None
+
+
+# ---------- sentence chunking (the key to low latency) ----------
+
+def sentences(text, minimum=60, maximum=400):
+    """Split text into sentences, merging tiny ones and cutting huge ones.
+
+    The first chunk is deliberately short (~30-90 chars) so the initial
+    synthesis takes ~1s and speech starts as soon as possible.
+    """
+    text = text.strip()
+    if len(text) > 90:
+        cut = -1
+        for pattern in (r"[.!?…;:]\s", r",\s"):
+            candidates = [m.end() for m in re.finditer(pattern, text[:90]) if m.end() >= 30]
+            if candidates:
+                cut = candidates[0]
+                break
+        if cut == -1:
+            space = text.rfind(" ", 30, 65)
+            cut = space if space != -1 else 65
+        yield text[:cut].strip()
+        text = text[cut:].strip()
+    raw = re.split(r"(?<=[.!?…;:])\s+|\n+", text)
+    chunks = []
+    for r in raw:
+        r = r.strip()
+        if not r:
+            continue
+        while len(r) > maximum:
+            cut = r.rfind(",", minimum, maximum)
+            if cut == -1:
+                cut = r.rfind(" ", minimum, maximum)
+            if cut == -1:
+                cut = maximum
+            chunks.append(r[:cut + 1].strip())
+            r = r[cut + 1:].strip()
+        if r:
+            chunks.append(r)
+    current = ""
+    for c in chunks:
+        current = (current + " " + c).strip()
+        if len(current) >= minimum:
+            yield current
+            current = ""
+    if current:
+        yield current
+
+
+# ---------- client ----------
+
+def connect(spawn=True):
+    """Connect to the daemon; start it and wait for it if it isn't running."""
+    def attempt():
+        try:
+            s = socket.socket(socket.AF_UNIX)
+            s.settimeout(2.0)
+            s.connect(DSOCK)
+            s.settimeout(None)
+            return s
+        except OSError:
+            return None
+
+    s = attempt()
+    if s or not spawn:
+        return s
+    with open(LOG, "ab") as log:
+        subprocess.Popen([sys.executable, os.path.realpath(__file__), "--daemon"],
+                         stdout=log, stderr=log, start_new_session=True)
+    for _ in range(120):  # up to 30s (first model load)
+        time.sleep(0.25)
+        s = attempt()
+        if s:
+            return s
+    sys.exit("Could not start the aloud daemon (see ~/.cache/aloud-daemon.log).")
+
+
+def client(request):
+    """Send the request and stay alive until the daemon reports the reading done."""
+    s = connect()
+    s.sendall((json.dumps(request, ensure_ascii=False) + "\n").encode())
+    f = s.makefile("r")
+    for line in f:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("event") in ("done", "aborted", "error"):
+            if event.get("event") == "error":
+                sys.exit(event.get("detail", "error"))
+            break
+
+
+# ---------- daemon ----------
+
+class Daemon:
+    def __init__(self):
+        self.gen = 0                  # generation: each reading/stop bumps it
+        self.lock = threading.Lock()
+        self.thread = None
+        self.pipelines = {}
+        self.plock = threading.Lock()
+
+    # --- model ---
+
+    def _create_pipeline(self, lang):
+        from kokoro import KPipeline
+        # CPU on purpose: on Apple Silicon, MPS is ~2.3x SLOWER here
+        # (istftnet's aten::angle op falls back to CPU on every call)
+        p = KPipeline(lang_code=lang, repo_id=REPO, device=None)
+        for _ in p("Hello.", voice=VOICES[lang], speed=1.0):
+            pass  # validates and warms caches
+        return p
+
+    def pipeline(self, lang):
+        with self.plock:
+            if lang not in self.pipelines:
+                self.pipelines[lang] = self._create_pipeline(lang)
+                print(f"[daemon] pipeline {lang} ready (cpu)", flush=True)
+            return self.pipelines[lang]
+
+    # --- readings ---
+
+    def send(self, conn, obj):
+        try:
+            conn.sendall((json.dumps(obj) + "\n").encode())
+        except OSError:
+            pass
+
+    def new_reading(self, conn, entry, cached_wavs):
+        with self.lock:
+            self.gen += 1
+            g = self.gen
+            previous = self.thread
+            self.thread = threading.current_thread()
+        mpv_cmd("quit")  # cut the previous reading's audio right away
+        if previous and previous.is_alive():
+            previous.join(timeout=15)
+        try:
+            os.remove(SOCK)
+        except FileNotFoundError:
+            pass
+        self.reading(conn, g, entry, cached_wavs)
+
+    def reading(self, conn, g, entry, cached_wavs):
+        import soundfile as sf
+        mpv = subprocess.Popen(
+            [MPV, "--idle=yes", "--no-video", "--no-terminal", f"--input-ipc-server={SOCK}"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            for _ in range(50):
+                if self.gen != g:
+                    return
+                if os.path.exists(SOCK) and mpv_cmd("get_property", "idle-active"):
+                    break
+                time.sleep(0.1)
+            mpv_cmd("set_property", "speed", entry.get("speed", 1.3))
+
+            if cached_wavs:
+                for path in cached_wavs:
+                    if self.gen != g:
+                        return
+                    mpv_cmd("loadfile", path, "append-play")
+            else:
+                pipeline = self.pipeline(entry["lang"])
+                dest = os.path.join(AUDIO, entry["id"])
+                os.makedirs(dest, exist_ok=True)
+                n = 0
+                for sentence in sentences(entry["text"]):
+                    if self.gen != g:
+                        return
+                    for _, _, audio in pipeline(sentence, voice=entry["voice"], speed=1.0):
+                        if self.gen != g:
+                            return
+                        path = os.path.join(dest, f"{n:04d}.wav")
+                        sf.write(path, audio, 24000)
+                        mpv_cmd("loadfile", path, "append-play")
+                        n += 1
+
+            for _ in range(20):  # grace: let mpv load the last queued file
+                r = mpv_cmd("get_property", "idle-active")
+                if r and r.get("data") is False:
+                    break
+                time.sleep(0.1)
+            while self.gen == g and mpv.poll() is None:
+                r = mpv_cmd("get_property", "idle-active")
+                if r is None or r.get("data") is True:
+                    break
+                time.sleep(0.3)
+        except Exception as e:
+            print(f"[daemon] reading error: {e}", flush=True)
+            self.send(conn, {"event": "error", "detail": str(e)})
+        finally:
+            if self.gen == g:
+                mpv_cmd("quit")
+                try:
+                    os.remove(SOCK)
+                except FileNotFoundError:
+                    pass
+            try:
+                mpv.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                mpv.kill()
+            self.send(conn, {"event": "done" if self.gen == g else "aborted"})
+            try:
+                conn.close()
+            except OSError:
+                pass
+            prune()
+
+    # --- dispatch ---
+
+    def handle(self, conn):
+        try:
+            line = conn.makefile("r").readline()
+            req = json.loads(line)
+        except (OSError, json.JSONDecodeError):
+            conn.close()
+            return
+        action = req.get("action")
+        if action == "ping":
+            self.send(conn, {"event": "done"})
+            conn.close()
+        elif action == "stop":
+            with self.lock:
+                self.gen += 1
+            mpv_cmd("quit")
+            self.send(conn, {"event": "done"})
+            conn.close()
+        elif action == "read":
+            lang = req.get("lang", "a")
+            entry = {
+                "id": datetime.now().strftime("%Y%m%d-%H%M%S"),
+                "date": datetime.now().isoformat(timespec="seconds"),
+                "text": req["text"],
+                "lang": lang,
+                "voice": req.get("voice") or VOICES.get(lang, "af_heart"),
+                "speed": req.get("speed", 1.3),
+            }
+            save_entry(entry)
+            self.new_reading(conn, entry, None)
+        elif action == "reread":
+            entry = next((e for e in load_history() if e["id"] == req.get("id")), None)
+            wavs = sorted(glob.glob(os.path.join(AUDIO, req.get("id", ""), "*.wav")))
+            if not wavs and not entry:
+                self.send(conn, {"event": "error", "detail": f"No entry {req.get('id')} in history."})
+                conn.close()
+                return
+            if entry:
+                entry = dict(entry, speed=req.get("speed", entry.get("speed", 1.3)))
+            else:
+                entry = {"id": req["id"], "speed": req.get("speed", 1.3)}
+            self.new_reading(conn, entry, wavs or None)
+        else:
+            self.send(conn, {"event": "error", "detail": f"unknown action: {action}"})
+            conn.close()
+
+    def serve(self):
+        # single instance: if a daemon already answers, exit quietly
+        try:
+            probe = socket.socket(socket.AF_UNIX)
+            probe.settimeout(1.0)
+            probe.connect(DSOCK)
+            probe.close()
+            sys.exit(0)
+        except OSError:
+            pass
+        try:
+            os.remove(DSOCK)
+        except FileNotFoundError:
+            pass
+        os.makedirs(os.path.dirname(DSOCK), exist_ok=True)
+        srv = socket.socket(socket.AF_UNIX)
+        srv.bind(DSOCK)
+        srv.listen(8)
+
+        def shutdown(signum, frame):
+            mpv_cmd("quit")
+            for path in (DSOCK, SOCK):
+                try:
+                    os.remove(path)
+                except FileNotFoundError:
+                    pass
+            sys.exit(0)
+
+        signal.signal(signal.SIGTERM, shutdown)
+        signal.signal(signal.SIGINT, shutdown)
+
+        # preload the model so the first reading is already warm
+        warm = os.environ.get("ALOUD_WARM_LANG", "a")
+        if warm in VOICES:
+            threading.Thread(target=lambda: self.pipeline(warm), daemon=True).start()
+        print("[daemon] listening", flush=True)
+        while True:
+            conn, _ = srv.accept()
+            threading.Thread(target=self.handle, args=(conn,), daemon=True).start()
+
+
+# ---------- CLI ----------
+
+def main():
+    p = argparse.ArgumentParser(description="Read text aloud with Kokoro TTS (local, free)")
+    p.add_argument("text", nargs="*", help="text to read (or stdin, or clipboard)")
+    p.add_argument("-s", "-v", "--speed", "--velocidad", dest="speed", type=float, default=1.3)
+    p.add_argument("-l", "-i", "--lang", "--idioma", dest="lang", default="a",
+                   choices=list(VOICES), help="a=English-US b=English-UK e=Spanish f=French "
+                                              "h=Hindi i=Italian j=Japanese p=Portuguese z=Chinese")
+    p.add_argument("--voice", "--voz", dest="voice", default=None, help="specific Kokoro voice")
+    p.add_argument("--speed-live", "--velocidad-live", dest="speed_live", type=float, metavar="X",
+                   help="change the speed of the current reading")
+    p.add_argument("--pause", "--pausa", dest="pause", action="store_true")
+    p.add_argument("--resume", "--reanudar", dest="resume", action="store_true")
+    p.add_argument("--replay", "--repetir", dest="replay", action="store_true")
+    p.add_argument("--stop", action="store_true")
+    p.add_argument("--history", "--historial", dest="history", nargs="?", const=15, type=int, metavar="N")
+    p.add_argument("--json", action="store_true", help="history in JSON format")
+    p.add_argument("--reread", "--releer", dest="reread", metavar="ID")
+    p.add_argument("--last", "--ultimo", dest="last", action="store_true")
+    p.add_argument("--daemon", action="store_true", help="(internal) resident process")
+    args = p.parse_args()
+
+    if args.daemon:
+        Daemon().serve()
+        return
+
+    # --- control commands for the current reading (straight to mpv) ---
+    if args.speed_live:
+        mpv_cmd("set_property", "speed", args.speed_live)
+        return
+    if args.pause:
+        mpv_cmd("set_property", "pause", True)
+        return
+    if args.resume:
+        mpv_cmd("set_property", "pause", False)
+        return
+    if args.replay:
+        mpv_cmd("playlist-play-index", 0)
+        mpv_cmd("set_property", "pause", False)
+        return
+    if args.stop:
+        s = connect(spawn=False)
+        if s:
+            s.sendall(b'{"action": "stop"}\n')
+            s.makefile("r").readline()
+        else:
+            mpv_cmd("quit")  # cleanup if an orphaned mpv survived without a daemon
+        return
+
+    # --- history ---
+    if args.history is not None:
+        entries = load_history()[:args.history]
+        if args.json:
+            print(json.dumps(entries, ensure_ascii=False))
+        else:
+            for e in entries:
+                date = e["date"].replace("T", " ")[5:16]
+                excerpt = e["text"][:70].replace("\n", " ")
+                print(f"{e['id']}  {date}  {excerpt}")
+        return
+    if args.last:
+        entries = load_history()
+        if not entries:
+            sys.exit("History is empty.")
+        client({"action": "reread", "id": entries[0]["id"], "speed": args.speed})
+        return
+    if args.reread:
+        client({"action": "reread", "id": args.reread, "speed": args.speed})
+        return
+
+    # --- text to read ---
+    if args.text:
+        text = " ".join(args.text)
+    elif not sys.stdin.isatty():
+        text = sys.stdin.read()
+    else:
+        text = subprocess.run(["pbpaste"], capture_output=True, text=True).stdout
+    text = text.strip()
+    if not text:
+        sys.exit("Nothing to read (pass it as an argument, pipe it, or copy it first with Cmd+C).")
+
+    client({"action": "read", "text": text, "lang": args.lang,
+            "voice": args.voice, "speed": args.speed})
+
+
+if __name__ == "__main__":
+    main()
