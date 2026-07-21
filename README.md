@@ -3,6 +3,8 @@
 **Free, open-source, local text-to-speech for macOS.**
 Like [Handy](https://github.com/cjpais/Handy), but for reading aloud.
 
+### → [**Website & one-command install**](https://eloigils.github.io/outloud/) · [Docs](https://eloigils.github.io/outloud/docs.html)
+
 Select text in *any* app — browser, terminal, PDF, mail — press **⌥⌘L**, and a
 natural voice reads it to you. Everything runs locally on your Mac: no cloud, no
 API keys, no subscription, no telemetry. Ever.
