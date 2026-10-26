@@ -1,3 +1,8 @@
 .DS_Store
 *.log
 __pycache__/
+.t3/
+.env
+.env.*
+!.env.example
+!.env.*.example

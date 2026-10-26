@@ -1,0 +1,9 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "defaultThreadEnvMode": "worktree",
+  "scripts": [
+    { "name": "Setup Worktree", "command": "./scripts/setup-worktree.sh", "icon": "configure", "runOnWorktreeCreate": true },
+    { "name": "Test", "command": "bash -n install.sh uninstall.sh scripts/setup-worktree.sh site/deploy.sh && python3 -c 'import ast; ast.parse(open(\"bin/outloud\").read())'", "icon": "test" },
+    { "name": "Dev", "command": "python3 -m http.server 8000 --directory site", "icon": "play", "previewUrl": "http://localhost:8000" }
+  ]
+}
