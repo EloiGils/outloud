@@ -187,7 +187,8 @@
     the voice model once at install time.</p></details>
   <details><summary>What does it need?</summary>
     <p>macOS with <a href="https://brew.sh">Homebrew</a>. The installer sets up the rest:
-    a private Python environment with the model (~2&nbsp;GB), the mpv audio engine, and the
+    a private Python 3.10–3.12 environment (it installs Python 3.12 if you don't have a
+    compatible one) with the model (~2&nbsp;GB), the mpv audio engine, and the
     Hammerspoon UI layer. Apple Silicon recommended.</p></details>
   <details><summary>How is it so fast if it's a local AI model?</summary>
     <p>Three tricks: the model stays warm in a resident daemon, text is synthesized

@@ -76,7 +76,11 @@
 
 <h2 id="install">Install</h2>
 <p>Requirements: macOS (Apple Silicon recommended) and
-<a href="https://brew.sh">Homebrew</a>.</p>
+<a href="https://brew.sh">Homebrew</a>. The voice model needs <strong>Python 3.10–3.12</strong>:
+the installer picks one automatically (preferring 3.12) and installs
+<code>python@3.12</code> with Homebrew if you don't have one, so your system
+<code>python3</code> can be any version. Dependencies are pinned in
+<code>requirements.txt</code>, and the command below installs the latest tagged release.</p>
 <pre><code>curl -fsSL https://raw.githubusercontent.com/EloiGils/outloud/main/install.sh | bash</code></pre>
 <p>Or from a clone:</p>
 <pre><code>git clone https://github.com/EloiGils/outloud.git

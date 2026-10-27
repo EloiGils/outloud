@@ -1,0 +1,5 @@
+# Pinned runtime dependencies for the outloud venv (~/.outloud/venv).
+# Kokoro 0.9.x needs Python >=3.10,<3.13; install.sh picks a matching interpreter.
+kokoro==0.9.4
+soundfile==0.14.0
+torch==2.14.1
