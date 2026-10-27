@@ -57,10 +57,20 @@ VOICES = {
 REPO = "hexgrad/Kokoro-82M"
 MPV = shutil.which("mpv") or next(
     (p for p in ("/opt/homebrew/bin/mpv", "/usr/local/bin/mpv") if os.path.exists(p)), "mpv")
-SOCK = os.path.expanduser("~/.cache/outloud-mpv.sock")       # mpv control
-DSOCK = os.path.expanduser("~/.cache/outloud-daemon.sock")   # daemon requests
-LOG = os.path.expanduser("~/.cache/outloud-daemon.log")
-APP = os.path.expanduser("~/Library/Application Support/Outloud")
+# OUTLOUD_HOME redirects every file outloud touches (history, audio cache,
+# sockets, log) into one directory, so tests never use a real install's data.
+_HOME = os.environ.get("OUTLOUD_HOME")
+if _HOME:
+    _HOME = os.path.abspath(os.path.expanduser(_HOME))
+    SOCK = os.path.join(_HOME, "outloud-mpv.sock")        # mpv control
+    DSOCK = os.path.join(_HOME, "outloud-daemon.sock")    # daemon requests
+    LOG = os.path.join(_HOME, "outloud-daemon.log")
+    APP = _HOME
+else:
+    SOCK = os.path.expanduser("~/.cache/outloud-mpv.sock")       # mpv control
+    DSOCK = os.path.expanduser("~/.cache/outloud-daemon.sock")   # daemon requests
+    LOG = os.path.expanduser("~/.cache/outloud-daemon.log")
+    APP = os.path.expanduser("~/Library/Application Support/Outloud")
 HIST = os.path.join(APP, "history.jsonl")
 AUDIO = os.path.join(APP, "audio")
 MAX_HISTORY = 300  # text entries kept
@@ -221,6 +231,7 @@ def connect(spawn=True):
     s = attempt()
     if s or not spawn:
         return s
+    os.makedirs(os.path.dirname(LOG), exist_ok=True)
     with open(LOG, "ab") as log:
         subprocess.Popen([sys.executable, os.path.realpath(__file__), "--daemon"],
                          stdout=log, stderr=log, start_new_session=True)
@@ -229,7 +240,7 @@ def connect(spawn=True):
         s = attempt()
         if s:
             return s
-    sys.exit("Could not start the outloud daemon (see ~/.cache/outloud-daemon.log).")
+    sys.exit(f"Could not start the outloud daemon (see {LOG}).")
 
 
 def client(request):
