@@ -15,6 +15,8 @@ Usage:
   outloud --history N --json     # history as JSON (for integrations)
   outloud --reread ID            # re-listen to a reading from history
   outloud --last                 # re-listen to the most recent reading
+  outloud -o note.m4a "text"     # save to an audio file instead of playing (.m4a/.wav/.mp3)
+  outloud -l auto -o note.m4a    # detect the language from the text
   outloud --daemon               # (internal) resident process with the model loaded
 
 Architecture: a resident daemon keeps Kokoro in memory and synthesizes sentence
@@ -63,6 +65,37 @@ HIST = os.path.join(APP, "history.jsonl")
 AUDIO = os.path.join(APP, "audio")
 MAX_HISTORY = 300  # text entries kept
 MAX_AUDIOS = 30    # readings kept with cached audio
+RATE = 24000       # Kokoro sample rate
+GAP = 0.25         # seconds of silence between chunks in exported files
+
+
+# ---------- language detection (for -l auto) ----------
+
+STOPWORDS = {
+    "e": set("el la los las de del que y en un una es por para con no se lo su al como más pero está son también".split()),
+    "a": set("the and of to is in that it for you with on this are be was have not as at".split()),
+    "f": set("le la les de des et est un une que qui pour pas dans ce sur avec il je vous".split()),
+    "i": set("il lo la gli le di che e è un una per non con del della sono come anche questo".split()),
+    "p": set("o a os as de do da que e é um uma para não com em no na por você isso".split()),
+}
+
+
+def detect_lang(text):
+    """Best-effort Kokoro language code for the text; English when unsure."""
+    if re.search(r"[぀-ヿ]", text):
+        return "j"
+    if re.search(r"[一-鿿]", text):
+        return "z"
+    if re.search(r"[ऀ-ॿ]", text):
+        return "h"
+    words = re.findall(r"[a-záéíóúàèìòùâêîôûãõçñü]+", text.lower())[:400]
+    scores = {lang: sum(w in sw for w in words) for lang, sw in STOPWORDS.items()}
+    if re.search(r"[ñ¿¡]", text):
+        scores["e"] += 5
+    if re.search(r"[ãõ]", text):
+        scores["p"] += 5
+    best = max(scores, key=scores.get)
+    return best if scores[best] > 0 else "a"
 
 
 # ---------- history ----------
@@ -212,7 +245,26 @@ def client(request):
         if event.get("event") in ("done", "aborted", "error"):
             if event.get("event") == "error":
                 sys.exit(event.get("detail", "error"))
-            break
+            return event
+    return {}
+
+
+def encode(wav, out):
+    """Convert a WAV file to the format implied by out's extension."""
+    ext = os.path.splitext(out)[1].lower()
+    if ext == ".wav":
+        shutil.move(wav, out)
+        return
+    ffmpeg = shutil.which("ffmpeg") or next(
+        (p for p in ("/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg") if os.path.exists(p)), None)
+    if ext in (".m4a", ".aac") and os.path.exists("/usr/bin/afconvert"):
+        cmd = ["/usr/bin/afconvert", "-f", "m4af", "-d", "aac", "-b", "64000", wav, out]
+    elif ffmpeg:
+        cmd = [ffmpeg, "-y", "-loglevel", "error", "-i", wav, "-b:a", "64k", out]
+    else:
+        raise RuntimeError(f"cannot write {ext} files (install ffmpeg, or use .m4a/.wav)")
+    subprocess.run(cmd, check=True)
+    os.remove(wav)
 
 
 # ---------- daemon ----------
@@ -224,6 +276,7 @@ class Daemon:
         self.thread = None
         self.pipelines = {}
         self.plock = threading.Lock()
+        self.rlock = threading.Lock()  # one file export at a time
 
     # --- model ---
 
@@ -333,6 +386,36 @@ class Daemon:
                 pass
             prune()
 
+    def render(self, conn, req):
+        """Synthesize the whole text into an audio file without playing it."""
+        import numpy as np
+        import soundfile as sf
+        out = os.path.abspath(os.path.expanduser(req["out"]))
+        lang = req.get("lang", "a")
+        voice = req.get("voice") or VOICES.get(lang, "af_heart")
+        try:
+            with self.rlock:
+                pipeline = self.pipeline(lang)
+                gap = np.zeros(int(RATE * GAP), dtype=np.float32)
+                parts = []
+                for sentence in sentences(req["text"]):
+                    for _, _, audio in pipeline(sentence, voice=voice, speed=req.get("speed", 1.0)):
+                        parts += [np.asarray(audio, dtype=np.float32), gap]
+                if not parts:
+                    raise RuntimeError("nothing to synthesize")
+                audio = np.concatenate(parts)
+                os.makedirs(os.path.dirname(out), exist_ok=True)
+                wav = out + ".tmp.wav"
+                sf.write(wav, audio, RATE)
+                encode(wav, out)
+            self.send(conn, {"event": "done", "path": out, "lang": lang,
+                             "seconds": round(len(audio) / RATE, 1)})
+        except Exception as e:
+            print(f"[daemon] render error: {e}", flush=True)
+            self.send(conn, {"event": "error", "detail": str(e)})
+        finally:
+            conn.close()
+
     # --- dispatch ---
 
     def handle(self, conn):
@@ -364,6 +447,8 @@ class Daemon:
             }
             save_entry(entry)
             self.new_reading(conn, entry, None)
+        elif action == "render":
+            self.render(conn, req)
         elif action == "reread":
             entry = next((e for e in load_history() if e["id"] == req.get("id")), None)
             wavs = sorted(glob.glob(os.path.join(AUDIO, req.get("id", ""), "*.wav")))
@@ -426,10 +511,14 @@ class Daemon:
 def main():
     p = argparse.ArgumentParser(description="Read text aloud with Kokoro TTS (local, free)")
     p.add_argument("text", nargs="*", help="text to read (or stdin, or clipboard)")
-    p.add_argument("-s", "-v", "--speed", "--velocidad", dest="speed", type=float, default=1.3)
+    p.add_argument("-s", "-v", "--speed", "--velocidad", dest="speed", type=float, default=None,
+                   help="speed (default 1.3 when reading aloud, 1.0 when saving a file)")
     p.add_argument("-l", "-i", "--lang", "--idioma", dest="lang", default="a",
-                   choices=list(VOICES), help="a=English-US b=English-UK e=Spanish f=French "
-                                              "h=Hindi i=Italian j=Japanese p=Portuguese z=Chinese")
+                   choices=list(VOICES) + ["auto"],
+                   help="a=English-US b=English-UK e=Spanish f=French h=Hindi i=Italian "
+                        "j=Japanese p=Portuguese z=Chinese auto=detect from the text")
+    p.add_argument("-o", "--out", "--salida", dest="out", metavar="FILE",
+                   help="save to an audio file (.m4a/.wav/.mp3) instead of playing it")
     p.add_argument("--voice", "--voz", dest="voice", default=None, help="specific Kokoro voice")
     p.add_argument("--speed-live", "--velocidad-live", dest="speed_live", type=float, metavar="X",
                    help="change the speed of the current reading")
@@ -486,10 +575,10 @@ def main():
         entries = load_history()
         if not entries:
             sys.exit("History is empty.")
-        client({"action": "reread", "id": entries[0]["id"], "speed": args.speed})
+        client({"action": "reread", "id": entries[0]["id"], "speed": args.speed or 1.3})
         return
     if args.reread:
-        client({"action": "reread", "id": args.reread, "speed": args.speed})
+        client({"action": "reread", "id": args.reread, "speed": args.speed or 1.3})
         return
 
     # --- text to read ---
@@ -503,8 +592,14 @@ def main():
     if not text:
         sys.exit("Nothing to read (pass it as an argument, pipe it, or copy it first with Cmd+C).")
 
-    client({"action": "read", "text": text, "lang": args.lang,
-            "voice": args.voice, "speed": args.speed})
+    lang = detect_lang(text) if args.lang == "auto" else args.lang
+    if args.out:
+        done = client({"action": "render", "text": text, "lang": lang, "voice": args.voice,
+                       "speed": args.speed or 1.0, "out": os.path.abspath(args.out)})
+        print(json.dumps(done, ensure_ascii=False) if args.json else done.get("path", args.out))
+        return
+    client({"action": "read", "text": text, "lang": lang,
+            "voice": args.voice, "speed": args.speed or 1.3})
 
 
 if __name__ == "__main__":

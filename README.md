@@ -64,7 +64,12 @@ cat article.md | outloud -l a      # pipe, English
 outloud -l e --voice em_alex       # Spanish, male voice
 outloud --history                  # list past readings
 outloud --reread 20260721-134536   # re-listen (instant, cached audio)
+outloud -l auto -o note.m4a < notes.txt   # save to an audio file instead of playing it
 ```
+
+`-o FILE` writes `.m4a`, `.wav` or `.mp3` (mp3 needs ffmpeg) using the warm daemon, without
+playing anything, so scripts and AI agents can hand someone an audio file. `-l auto` picks the
+language from the text.
 
 ## How it works
 
