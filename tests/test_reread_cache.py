@@ -89,6 +89,7 @@ def main():
     try:
         wait_for(lambda: os.path.exists(os.path.join(home, "outloud-daemon.sock")), "daemon socket")
 
+        os.environ["OUTLOUD_HOME"] = home  # the imported module must not see a real install either
         loader = importlib.machinery.SourceFileLoader("outloud_mod", OUTLOUD)
         mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("outloud_mod", loader))
         loader.exec_module(mod)
@@ -114,7 +115,39 @@ def main():
         print(f"re-read played {len(played)} of {expected} chunks")
         ok = len(played) == expected and len(set(played)) == expected
         print("PASS: re-read plays the full text" if ok else "FAIL: re-read is truncated")
-        return 0 if ok else 1
+        failed = not ok
+
+        # 3. the finished re-read marked the entry complete: a third read replays the cached files
+        open(mpvlog, "w").close()
+        cli("--reread", rid).wait(timeout=60)
+        cached = plays() == played
+        print("PASS: complete entry replays its cached files" if cached else "FAIL: cache not reused")
+        failed |= not cached
+
+        # 4. an old-style id (no ms) with a leftover partial dir still parses and is re-synthesized
+        old_id = "20260101-000000"
+        os.makedirs(os.path.join(home, "audio", old_id))
+        open(os.path.join(home, "audio", old_id, "0000.wav"), "w").close()
+        with open(os.path.join(home, "history.jsonl"), "a") as f:
+            f.write(json.dumps({"id": old_id, "date": "2026-01-01T00:00:00", "text": TEXT,
+                                "lang": "a", "voice": "af_heart", "speed": 1.0}) + "\n")
+        open(mpvlog, "w").close()
+        cli("--reread", old_id).wait(timeout=60)
+        legacy = len(plays()) == expected
+        print(f"legacy id re-read played {len(plays())} of {expected} chunks")
+        print("PASS: legacy id re-synthesized" if legacy else "FAIL: legacy id truncated")
+        failed |= not legacy
+
+        # 5. ids stay unique even when many readings are created within the same millisecond
+        ids = []
+        for _ in range(5):
+            ids.append(mod.new_id())
+            os.makedirs(os.path.join(mod.AUDIO, ids[-1]))
+        unique = len(set(ids)) == len(ids) and all(mod.ID_RE.fullmatch(i) for i in ids)
+        print(f"ids {ids}")
+        print("PASS: ids unique" if unique else "FAIL: duplicate ids")
+        failed |= not unique
+        return 1 if failed else 0
     finally:
         daemon.terminate()  # SIGTERM to the daemon we spawned (tracked Popen), never by name
         try:

@@ -77,6 +77,9 @@ MAX_HISTORY = 300  # text entries kept
 MAX_AUDIOS = 30    # readings kept with cached audio
 RATE = 24000       # Kokoro sample rate
 GAP = 0.25         # seconds of silence between chunks in exported files
+COMPLETE = "complete"  # marker in AUDIO/<id>/: every chunk of the reading was synthesized
+# Reading ids: YYYYMMDD-HHMMSS (older versions), then -mmm, then an optional -N tie-breaker.
+ID_RE = re.compile(r"\d{8}-\d{6}(-\d{3})?(-\d+)?")
 
 
 # ---------- language detection (for -l auto) ----------
@@ -132,6 +135,18 @@ def save_entry(entry):
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def new_id():
+    """Unique reading id (millisecond resolution, -N suffix if one is still taken)."""
+    now = datetime.now()
+    base = now.strftime("%Y%m%d-%H%M%S-") + f"{now.microsecond // 1000:03d}"
+    taken = {e["id"] for e in load_history()}
+    rid, n = base, 1
+    while rid in taken or os.path.exists(os.path.join(AUDIO, rid)):
+        n += 1
+        rid = f"{base}-{n}"
+    return rid
+
+
 def prune():
     """Trim history and delete the oldest cached audio."""
     entries = load_history()
@@ -139,7 +154,7 @@ def prune():
         with open(HIST, "w") as f:
             for e in reversed(entries[:MAX_HISTORY]):
                 f.write(json.dumps(e, ensure_ascii=False) + "\n")
-    dirs = sorted(glob.glob(os.path.join(AUDIO, "*")))
+    dirs = sorted(glob.glob(os.path.join(AUDIO, "*")), key=os.path.getmtime)
     for old in dirs[:-MAX_AUDIOS]:
         shutil.rmtree(old, ignore_errors=True)
 
@@ -353,7 +368,8 @@ class Daemon:
             else:
                 pipeline = self.pipeline(entry["lang"])
                 dest = os.path.join(AUDIO, entry["id"])
-                os.makedirs(dest, exist_ok=True)
+                shutil.rmtree(dest, ignore_errors=True)  # drop chunks left by an interrupted run
+                os.makedirs(dest)
                 n = 0
                 for sentence in sentences(entry["text"]):
                     if self.gen != g:
@@ -365,6 +381,8 @@ class Daemon:
                         sf.write(path, audio, 24000)
                         mpv_cmd("loadfile", path, "append-play")
                         n += 1
+                if n:  # reached only if no stop/new reading cut the loop short
+                    open(os.path.join(dest, COMPLETE), "w").close()
 
             for _ in range(20):  # grace: let mpv load the last queued file
                 r = mpv_cmd("get_property", "idle-active")
@@ -449,7 +467,7 @@ class Daemon:
         elif action == "read":
             lang = req.get("lang", "a")
             entry = {
-                "id": datetime.now().strftime("%Y%m%d-%H%M%S"),
+                "id": new_id(),
                 "date": datetime.now().isoformat(timespec="seconds"),
                 "text": req["text"],
                 "lang": lang,
@@ -461,10 +479,16 @@ class Daemon:
         elif action == "render":
             self.render(conn, req)
         elif action == "reread":
-            entry = next((e for e in load_history() if e["id"] == req.get("id")), None)
-            wavs = sorted(glob.glob(os.path.join(AUDIO, req.get("id", ""), "*.wav")))
+            rid = req.get("id", "")
+            entry = next((e for e in load_history() if e["id"] == rid), None)
+            if not ID_RE.fullmatch(rid):
+                entry = None  # the id names a folder we may delete and rewrite
+            folder = os.path.join(AUDIO, rid)
+            # cached audio only counts if the whole reading was synthesized
+            cached = bool(ID_RE.fullmatch(rid)) and os.path.exists(os.path.join(folder, COMPLETE))
+            wavs = sorted(glob.glob(os.path.join(folder, "*.wav"))) if cached else []
             if not wavs and not entry:
-                self.send(conn, {"event": "error", "detail": f"No entry {req.get('id')} in history."})
+                self.send(conn, {"event": "error", "detail": f"No entry {rid} in history."})
                 conn.close()
                 return
             if entry:
