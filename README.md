@@ -32,7 +32,12 @@ API keys, no subscription, no telemetry. Ever.
 
 ## Install
 
-Requires macOS and [Homebrew](https://brew.sh).
+Requires macOS and [Homebrew](https://brew.sh). The Kokoro voice model needs
+**Python 3.10–3.12**; the installer picks a matching interpreter (preferring
+3.12, then 3.11, 3.10) and runs `brew install python@3.12` if you have none, so
+a newer default `python3` (3.13+) or macOS's built-in 3.9 is not a problem.
+Dependencies are pinned in [`requirements.txt`](requirements.txt), and the
+one-line `curl` install uses the latest tagged release rather than `main`.
 
 ```bash
 git clone https://github.com/EloiGils/outloud.git
